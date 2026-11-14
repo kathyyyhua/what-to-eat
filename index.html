@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#ff6b4a" />
+  <title>What to Eat Today</title>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="./icon.svg" />
+  <style>
+    :root {
+      --bg: #f7f7f9;
+      --card: #ffffff;
+      --text: #1c1c1e;
+      --muted: #8e8e93;
+      --primary: #ff6b4a;
+      --primary-dark: #e85a3a;
+      --green: #34c759;
+      --border: #e5e5ea;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: calc(80px + env(safe-area-inset-bottom));
+    }
+    header {
+      padding: 18px 20px 10px;
+      text-align: center;
+    }
+    header h1 { margin: 0; font-size: 22px; font-weight: 700; }
+    header p { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+
+    /* Views */
+    .view { display: none; padding: 12px 18px; max-width: 480px; margin: 0 auto; }
+    .view.active { display: block; }
+
+    /* Filter Chips */
+    .chips {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 4px 0 14px;
+      scrollbar-width: none;
+    }
+    .chips::-webkit-scrollbar { display: none; }
+    .chip {
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      padding: 7px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .chip.active {
+      background: var(--text);
+      color: #fff;
+      border-color: var(--text);
+    }
+
+    /* Picker Card */
+    .picker-card {
+      background: var(--card);
+      border-radius: 24px;
+      padding: 36px 24px;
+      text-align: center;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.05);
+      margin: 10px 0 22px;
+      min-height: 230px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+    }
+    .emoji { font-size: 54px; margin-bottom: 12px; transition: transform 0.2s; }
+    .spinning .emoji { transform: scale(1.15) rotate(12deg); }
+    .meal-name { font-size: 26px; font-weight: 800; margin: 0 0 8px; }
+    .meal-meta { font-size: 13px; color: var(--muted); }
+
+    /* Buttons */
+    .btn-group { display: flex; flex-direction: column; gap: 10px; }
+    button.primary {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      padding: 16px;
+      border-radius: 16px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(255, 107, 74, 0.3);
+    }
+    button.primary:active { background: var(--primary-dark); transform: scale(0.99); }
+    button.secondary {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 14px;
+      border-radius: 16px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.secondary.locked {
+      background: var(--green);
+      color: #fff;
+      border-color: var(--green);
+    }
+
+    /* List & Form */
+    .add-form {
+      background: var(--card);
+      padding: 16px;
+      border-radius: 18px;
+      margin-bottom: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .row { display: flex; gap: 8px; }
+    input, select {
+      width: 100%;
+      padding: 11px 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font-size: 14px;
+      background: var(--bg);
+    }
+    .list-item {
+      background: var(--card);
+      padding: 14px 16px;
+      border-radius: 16px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .list-item.muted { opacity: 0.45; }
+    .item-info { display: flex; flex-direction: column; gap: 3px; }
+    .item-title { font-weight: 600; font-size: 15px; }
+    .item-tag { font-size: 12px; color: var(--muted); }
+    .item-actions { display: flex; gap: 8px; }
+    .icon-btn {
+      border: 1px solid var(--border);
+      background: var(--bg);
+      border-radius: 10px;
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    /* Bottom Tab Bar */
+    nav {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(10px);
+      border-top: 1px solid var(--border);
+      display: flex;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    nav button {
+      flex: 1;
+      background: none;
+      border: none;
+      padding: 12px 0;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    nav button.active { color: var(--primary); }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>🍽️ What to Eat</h1>
+    <p id="subtitle">No-repeat daily meal picker</p>
+  </header>
+
+  <!-- TAB 1: DECIDE -->
+  <main id="view-decide" class="view active">
+    <div class="chips" id="filter-chips"></div>
+
+    <div class="picker-card" id="picker-card">
+      <div class="emoji" id="meal-emoji">🎲</div>
+      <div class="meal-name" id="meal-name">Tap Spin to Decide</div>
+      <div class="meal-meta" id="meal-meta">Automatically avoids your last 3 meals</div>
+    </div>
+
+    <div class="btn-group">
+      <button class="primary" id="spin-btn">Spin for a Meal</button>
+      <button class="secondary" id="lock-btn" style="display:none;">Lock It In (Won't Repeat Next 3 Picks)</button>
+      <button class="secondary" id="copy-btn" style="display:none;">Copy Result to Share in WeChat</button>
+    </div>
+  </main>
+
+  <!-- TAB 2: MY LIST -->
+  <main id="view-list" class="view">
+    <form class="add-form" id="add-form">
+      <div class="row">
+        <input type="text" id="input-emoji" value="🍜" maxlength="2" style="width: 56px; text-align:center;" />
+        <input type="text" id="input-name" placeholder="Restaurant or dish name..." required />
+      </div>
+      <div class="row">
+        <select id="input-category">
+          <option value="Quick">Quick / Takeout</option>
+          <option value="Healthy">Healthy / High-Protein</option>
+          <option value="Dine-in">Dine-in / Sit-down</option>
+          <option value="Comfort">Comfort Food</option>
+          <option value="Cafe">Coffee / Brunch</option>
+        </select>
+        <button type="submit" class="primary" style="padding: 11px 18px; white-space: nowrap;">+ Add</button>
+      </div>
+    </form>
+
+    <div id="meal-list"></div>
+  </main>
+
+  <nav>
+    <button class="active" data-tab="decide">🎲 Decide</button>
+    <button data-tab="list">📋 My Spots (<span id="count-badge">0</span>)</button>
+  </nav>
+
+  <script>
+    const STORAGE_KEY = 'wte_meals_v1';
+    const HISTORY_KEY = 'wte_history_v1';
+    const NO_REPEAT_COUNT = 3;
+
+    const DEFAULT_MEALS = [
+      { id: 1, name: 'Grilled Chicken Salad', emoji: '🥗', category: 'Healthy', active: true },
+      { id: 2, name: 'Poke Bowl', emoji: '🐟', category: 'Healthy', active: true },
+      { id: 3, name: 'Crispy Chicken Sandwich', emoji: '🍔', category: 'Quick', active: true },
+      { id: 4, name: 'Ramen / Izakaya', emoji: '🍜', category: 'Dine-in', active: true },
+      { id: 5, name: 'Steak & Fries', emoji: '🥩', category: 'Dine-in', active: true },
+      { id: 6, name: 'Tacos / Burrito Bowl', emoji: '🌮', category: 'Quick', active: true },
+      { id: 7, name: 'Iced Latte & Pastry', emoji: '🥐', category: 'Cafe', active: true },
+      { id: 8, name: 'Hot Pot / BBQ', emoji: '🍲', category: 'Comfort', active: true }
+    ];
+
+    let meals = JSON.parse(localStorage.getItem(STORAGE_KEY)) || DEFAULT_MEALS;
+    let history = JSON.parse(localStorage.getItem(HISTORY_KEY)) || [];
+    let selectedCategory = 'All';
+    let currentPick = null;
+
+    const saveState = () => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(meals));
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+      document.getElementById('count-badge').textContent = meals.filter(m => m.active).length;
+    };
+
+    // Render Category Filter Chips
+    const renderChips = () => {
+      const categories = ['All', 'Quick', 'Healthy', 'Dine-in', 'Comfort', 'Cafe'];
+      const container = document.getElementById('filter-chips');
+      container.innerHTML = categories.map(cat => `
+        <button class="chip ${selectedCategory === cat ? 'active' : ''}" data-cat="${cat}">
+          ${cat}
+        </button>
+      `).join('');
+
+      container.querySelectorAll('.chip').forEach(btn => {
+        btn.onclick = () => {
+          selectedCategory = btn.dataset.cat;
+          renderChips();
+        };
+      });
+    };
+
+    // No-Repeat Randomizer Logic
+    const spinMeal = () => {
+      let pool = meals.filter(m => m.active && (selectedCategory === 'All' || m.category === selectedCategory));
+      if (pool.length === 0) {
+        alert('No active spots in this category! Add one or switch filters.');
+        return;
+      }
+
+      // Filter out recent history unless pool is too small
+      const nonRecent = pool.filter(m => !history.slice(-NO_REPEAT_COUNT).includes(m.id));
+      const candidates = nonRecent.length > 0 ? nonRecent : pool;
+
+      const card = document.getElementById('picker-card');
+      const lockBtn = document.getElementById('lock-btn');
+      const copyBtn = document.getElementById('copy-btn');
+      card.classList.add('spinning');
+      lockBtn.classList.remove('locked');
+      lockBtn.textContent = "Lock It In (Won't Repeat Next 3 Picks)";
+
+      let ticks = 0;
+      const interval = setInterval(() => {
+        const temp = candidates[Math.floor(Math.random() * candidates.length)];
+        document.getElementById('meal-emoji').textContent = temp.emoji;
+        document.getElementById('meal-name').textContent = temp.name;
+        document.getElementById('meal-meta').textContent = temp.category;
+        ticks++;
+
+        if (ticks >= 10) {
+          clearInterval(interval);
+          card.classList.remove('spinning');
+          currentPick = candidates[Math.floor(Math.random() * candidates.length)];
+          document.getElementById('meal-emoji').textContent = currentPick.emoji;
+          document.getElementById('meal-name').textContent = currentPick.name;
+          document.getElementById('meal-meta').textContent = `${currentPick.category} • Ready to go`;
+          lockBtn.style.display = 'block';
+          copyBtn.style.display = 'block';
+        }
+      }, 65);
+    };
+
+    // Lock In Choice (updates history)
+    document.getElementById('lock-btn').onclick = function() {
+      if (!currentPick) return;
+      history.push(currentPick.id);
+      if (history.length > 10) history.shift();
+      saveState();
+      this.classList.add('locked');
+      this.textContent = '✓ Locked In!';
+    };
+
+    // Copy to Clipboard for WeChat
+    document.getElementById('copy-btn').onclick = function() {
+      if (!currentPick) return;
+      const text = `Today's pick: ${currentPick.emoji} ${currentPick.name} (${currentPick.category}) — sound good?`;
+      navigator.clipboard?.writeText(text);
+      const original = this.textContent;
+      this.textContent = '✓ Copied! Paste in WeChat';
+      setTimeout(() => (this.textContent = original), 2000);
+    };
+
+    // Render Manage List
+    const renderList = () => {
+      const container = document.getElementById('meal-list');
+      container.innerHTML = meals.map(m => {
+        const isRecent = history.slice(-NO_REPEAT_COUNT).includes(m.id);
+        return `
+          <div class="list-item ${m.active ? '' : 'muted'}">
+            <div class="item-info">
+              <div class="item-title">${m.emoji} ${m.name}</div>
+              <div class="item-tag">${m.category}${isRecent ? ' • Ate recently' : ''}</div>
+            </div>
+            <div class="item-actions">
+              <button class="icon-btn" onclick="toggleMeal(${m.id})">${m.active ? 'Mute' : 'Enable'}</button>
+              <button class="icon-btn" onclick="deleteMeal(${m.id})">✕</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    };
+
+    window.toggleMeal = (id) => {
+      meals = meals.map(m => m.id === id ? { ...m, active: !m.active } : m);
+      saveState();
+      renderList();
+    };
+
+    window.deleteMeal = (id) => {
+      meals = meals.filter(m => m.id !== id);
+      saveState();
+      renderList();
+    };
+
+    // Add New Meal
+    document.getElementById('add-form').onsubmit = (e) => {
+      e.preventDefault();
+      const name = document.getElementById('input-name').value.trim();
+      const emoji = document.getElementById('input-emoji').value.trim() || '🍽️';
+      const category = document.getElementById('input-category').value;
+      if (!name) return;
+
+      meals.unshift({ id: Date.now(), name, emoji, category, active: true });
+      document.getElementById('input-name').value = '';
+      saveState();
+      renderList();
+    };
+
+    // Navigation Tabs
+    document.querySelectorAll('nav button').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(`view-${btn.dataset.tab}`).classList.add('active');
+        if (btn.dataset.tab === 'list') renderList();
+      };
+    });
+
+    document.getElementById('spin-btn').onclick = spinMeal;
+
+    // Register Service Worker for Offline PWA Support
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    }
+
+    saveState();
+    renderChips();
+  </script>
+</body>
+</html>
