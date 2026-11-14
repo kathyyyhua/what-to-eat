@@ -229,12 +229,32 @@
 
     <div class="btn-group">
       <button class="primary" id="spin-btn">Spin for a Meal</button>
+      <button class="secondary" id="try-new-btn">Try Something New</button>
       <button class="secondary" id="lock-btn" style="display:none;">Lock It In (Won't Repeat Next 3 Picks)</button>
       <button class="secondary" id="copy-btn" style="display:none;">Copy Result to Share</button>
     </div>
   </main>
 
-  <!-- TAB 2: MY LIST -->
+  <!-- TAB 2: EXPLORE -->
+  <main id="view-explore" class="view">
+    <form class="add-form" id="explore-add-form">
+      <div class="row">
+        <input type="text" id="explore-input-emoji" value="🍜" maxlength="2" style="width: 56px; text-align:center;" />
+        <input type="text" id="explore-input-name" placeholder="Restaurant or dish name..." required />
+      </div>
+      <div class="row">
+        <div id="explore-input-category" class="category-picker" aria-label="Select categories"></div>
+      </div>
+      <div class="form-actions">
+        <button type="submit" id="explore-submit-meal" class="primary">+ Add</button>
+        <button type="button" id="explore-cancel-edit" class="secondary" style="display:none;">Cancel</button>
+      </div>
+    </form>
+
+    <div id="explore-meal-list"></div>
+  </main>
+
+  <!-- TAB 3: MY LIST -->
   <main id="view-list" class="view">
     <form class="add-form" id="add-form">
       <div class="row">
@@ -253,7 +273,7 @@
     <div id="meal-list"></div>
   </main>
 
-  <!-- TAB 3: NOTES -->
+  <!-- TAB 4: NOTES -->
   <main id="view-notes" class="view">
     <form class="add-form manual-note-form" id="manual-note-form">
       <div class="row">
@@ -266,13 +286,16 @@
 
   <nav>
     <button class="active" data-tab="decide">🎲 Decide</button>
+    <button data-tab="explore">🧭 Explore (<span id="explore-count-badge">0</span>)</button>
     <button data-tab="list">📋 My Spots (<span id="count-badge">0</span>)</button>
     <button data-tab="notes">📝 Notes (<span id="notes-count-badge">0</span>)</button>
   </nav>
 
   <script>
     const STORAGE_KEY = 'wte_meals_v1';
+    const EXPLORE_STORAGE_KEY = 'wte_explore_meals_v1';
     const HISTORY_KEY = 'wte_history_v1';
+    const EXPLORE_HISTORY_KEY = 'wte_explore_history_v1';
     const LOCKED_PICKS_KEY = 'wte_locked_picks_v1';
     const NO_REPEAT_COUNT = 3;
     const CATEGORIES = ['Quick', 'Healthy', 'Dine-in', 'Comfort', 'Coffee', 'Chinese', 'Brunch', 'Bakery'];
@@ -303,25 +326,43 @@
       ...meal,
       categories: normalizeMealCategories(meal)
     }));
+    let exploreMeals = (JSON.parse(localStorage.getItem(EXPLORE_STORAGE_KEY)) || []).map(meal => ({
+      ...meal,
+      categories: normalizeMealCategories(meal)
+    }));
     let history = JSON.parse(localStorage.getItem(HISTORY_KEY)) || [];
+    let exploreHistory = JSON.parse(localStorage.getItem(EXPLORE_HISTORY_KEY)) || [];
     let lockedPicks = JSON.parse(localStorage.getItem(LOCKED_PICKS_KEY)) || [];
     let selectedCategory = 'All';
     let currentPick = null;
-    let editingMealId = null;
+    let currentPickSource = 'spots';
+    let spinInterval = null;
+    let editingMeal = null;
 
     const saveState = () => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(meals.map(({ category, ...meal }) => ({
+      const serializeMeals = list => list.map(({ category, ...meal }) => ({
         ...meal,
         categories: getMealCategories(meal)
-      }))));
+      }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(serializeMeals(meals)));
+      localStorage.setItem(EXPLORE_STORAGE_KEY, JSON.stringify(serializeMeals(exploreMeals)));
       localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+      localStorage.setItem(EXPLORE_HISTORY_KEY, JSON.stringify(exploreHistory));
       localStorage.setItem(LOCKED_PICKS_KEY, JSON.stringify(lockedPicks));
       document.getElementById('count-badge').textContent = meals.filter(m => m.active).length;
+      document.getElementById('explore-count-badge').textContent = exploreMeals.filter(m => m.active).length;
       document.getElementById('notes-count-badge').textContent = lockedPicks.length;
     };
 
-    const renderCategoryPicker = (selectedCategories = []) => {
-      const container = document.getElementById('input-category');
+    const getMeals = source => source === 'explore' ? exploreMeals : meals;
+    const setMeals = (source, nextMeals) => {
+      if (source === 'explore') exploreMeals = nextMeals;
+      else meals = nextMeals;
+    };
+    const getHistory = source => source === 'explore' ? exploreHistory : history;
+
+    const renderCategoryPicker = (containerId, selectedCategories = []) => {
+      const container = document.getElementById(containerId);
       container.innerHTML = CATEGORIES.map(category => `
         <label class="category-option">
           <input type="checkbox" value="${category}" ${selectedCategories.includes(category) ? 'checked' : ''} />
@@ -330,13 +371,14 @@
       `).join('');
     };
 
-    const resetMealForm = () => {
-      editingMealId = null;
-      document.getElementById('input-name').value = '';
-      document.getElementById('input-emoji').value = '🍜';
-      document.getElementById('submit-meal').textContent = '+ Add';
-      document.getElementById('cancel-edit').style.display = 'none';
-      renderCategoryPicker();
+    const resetMealForm = (source) => {
+      if (editingMeal?.source === source) editingMeal = null;
+      const prefix = source === 'explore' ? 'explore-' : '';
+      document.getElementById(`${prefix}input-name`).value = '';
+      document.getElementById(`${prefix}input-emoji`).value = '🍜';
+      document.getElementById(`${prefix}submit-meal`).textContent = '+ Add';
+      document.getElementById(`${prefix}cancel-edit`).style.display = 'none';
+      renderCategoryPicker(`${prefix}input-category`);
     };
 
     // Render Category Filter Chips
@@ -358,27 +400,36 @@
     };
 
     // No-Repeat Randomizer Logic
-    const spinMeal = () => {
-      let pool = meals.filter(m => m.active && (selectedCategory === 'All' || getMealCategories(m).includes(selectedCategory)));
+    const spinMeal = (source = 'spots') => {
+      const sourceMeals = getMeals(source);
+      const sourceHistory = getHistory(source);
+      const sourceName = source === 'explore' ? 'Explore' : 'My Spots';
+      const pool = sourceMeals.filter(m => m.active && (selectedCategory === 'All' || getMealCategories(m).includes(selectedCategory)));
       if (pool.length === 0) {
-        alert('No active spots in this category! Add one or switch filters.');
+        alert(`No active spots in ${sourceName} for this category! Add one or switch filters.`);
         return;
       }
 
       // Filter out recent history unless pool is too small
-      const nonRecent = pool.filter(m => !history.slice(-NO_REPEAT_COUNT).includes(m.id));
+      const nonRecent = pool.filter(m => !sourceHistory.slice(-NO_REPEAT_COUNT).includes(m.id));
       const candidates = nonRecent.length > 0 ? nonRecent : pool;
 
       const card = document.getElementById('picker-card');
       const lockBtn = document.getElementById('lock-btn');
       const copyBtn = document.getElementById('copy-btn');
+      const spinButtons = [document.getElementById('spin-btn'), document.getElementById('try-new-btn')];
+      if (spinInterval) clearInterval(spinInterval);
+      currentPick = null;
       card.classList.add('spinning');
+      currentPickSource = source;
       lockBtn.classList.remove('locked');
-      lockBtn.disabled = false;
+      lockBtn.disabled = true;
       lockBtn.textContent = "Lock It In (Won't Repeat Next 3 Picks)";
+      copyBtn.disabled = true;
+      spinButtons.forEach(button => button.disabled = true);
 
       let ticks = 0;
-      const interval = setInterval(() => {
+      spinInterval = setInterval(() => {
         const temp = candidates[Math.floor(Math.random() * candidates.length)];
         const tempCategories = getMealCategories(temp).join(', ') || 'Uncategorized';
         document.getElementById('meal-emoji').textContent = temp.emoji;
@@ -387,7 +438,8 @@
         ticks++;
 
         if (ticks >= 10) {
-          clearInterval(interval);
+          clearInterval(spinInterval);
+          spinInterval = null;
           card.classList.remove('spinning');
           currentPick = candidates[Math.floor(Math.random() * candidates.length)];
           const currentCategories = getMealCategories(currentPick).join(', ') || 'Uncategorized';
@@ -396,6 +448,9 @@
           document.getElementById('meal-meta').textContent = `${currentCategories} • Ready to go`;
           lockBtn.style.display = 'block';
           copyBtn.style.display = 'block';
+          lockBtn.disabled = false;
+          copyBtn.disabled = false;
+          spinButtons.forEach(button => button.disabled = false);
         }
       }, 65);
     };
@@ -403,8 +458,9 @@
     // Lock In Choice (updates history and saved notes)
     document.getElementById('lock-btn').onclick = function() {
       if (!currentPick) return;
-      history.push(currentPick.id);
-      if (history.length > 10) history.shift();
+      const currentHistory = getHistory(currentPickSource);
+      currentHistory.push(currentPick.id);
+      if (currentHistory.length > 10) currentHistory.shift();
       addLockedPick(currentPick);
       this.classList.add('locked');
       this.disabled = true;
@@ -423,10 +479,12 @@
     };
 
     // Render Manage List
-    const renderList = () => {
-      const container = document.getElementById('meal-list');
-      container.innerHTML = meals.map(m => {
-        const isRecent = history.slice(-NO_REPEAT_COUNT).includes(m.id);
+    const renderList = (source = 'spots') => {
+      const sourceMeals = getMeals(source);
+      const sourceHistory = getHistory(source);
+      const container = document.getElementById(source === 'explore' ? 'explore-meal-list' : 'meal-list');
+      container.innerHTML = sourceMeals.map(m => {
+        const isRecent = sourceHistory.slice(-NO_REPEAT_COUNT).includes(m.id);
         const categories = getMealCategories(m);
         return `
           <div class="list-item ${m.active ? '' : 'muted'}">
@@ -435,9 +493,10 @@
               <div class="item-tag">${categories.length ? categories.join(', ') : 'Uncategorized'}${isRecent ? ' • Ate recently' : ''}</div>
             </div>
             <div class="item-actions">
-              <button class="icon-btn" onclick="editMeal(${m.id})">Edit</button>
-              <button class="icon-btn" onclick="toggleMeal(${m.id})">${m.active ? 'Mute' : 'Enable'}</button>
-              <button class="icon-btn" onclick="deleteMeal(${m.id})">✕</button>
+              ${source === 'explore' ? `<button class="icon-btn" onclick="markMealTried(${m.id})">Tried!</button>` : ''}
+              <button class="icon-btn" onclick="editMeal(${m.id}, '${source}')">Edit</button>
+              <button class="icon-btn" onclick="toggleMeal(${m.id}, '${source}')">${m.active ? 'Mute' : 'Enable'}</button>
+              <button class="icon-btn" onclick="deleteMeal(${m.id}, '${source}')">✕</button>
             </div>
           </div>
         `;
@@ -542,59 +601,81 @@
       renderManualNoteOptions();
     };
 
-    window.toggleMeal = (id) => {
-      meals = meals.map(m => m.id === id ? { ...m, active: !m.active } : m);
+    window.toggleMeal = (id, source = 'spots') => {
+      setMeals(source, getMeals(source).map(m => m.id === id ? { ...m, active: !m.active } : m));
       saveState();
-      renderList();
+      renderList(source);
     };
 
-    window.editMeal = (id) => {
-      const meal = meals.find(m => m.id === id);
+    window.editMeal = (id, source = 'spots') => {
+      const meal = getMeals(source).find(m => m.id === id);
       if (!meal) return;
 
-      editingMealId = id;
-      document.getElementById('input-name').value = meal.name;
-      document.getElementById('input-emoji').value = meal.emoji;
-      renderCategoryPicker(getMealCategories(meal));
-      document.getElementById('submit-meal').textContent = 'Save changes';
-      document.getElementById('cancel-edit').style.display = 'block';
-      document.getElementById('input-name').focus();
+      if (editingMeal && editingMeal.source !== source) resetMealForm(editingMeal.source);
+      const prefix = source === 'explore' ? 'explore-' : '';
+      editingMeal = { id, source };
+      document.getElementById(`${prefix}input-name`).value = meal.name;
+      document.getElementById(`${prefix}input-emoji`).value = meal.emoji;
+      renderCategoryPicker(`${prefix}input-category`, getMealCategories(meal));
+      document.getElementById(`${prefix}submit-meal`).textContent = 'Save changes';
+      document.getElementById(`${prefix}cancel-edit`).style.display = 'block';
+      document.getElementById(`${prefix}input-name`).focus();
     };
 
-    window.deleteMeal = (id) => {
-      meals = meals.filter(m => m.id !== id);
-      if (editingMealId === id) resetMealForm();
+    window.deleteMeal = (id, source = 'spots') => {
+      setMeals(source, getMeals(source).filter(m => m.id !== id));
+      if (editingMeal?.source === source && editingMeal.id === id) resetMealForm(source);
       saveState();
-      renderList();
+      renderList(source);
+      if (source === 'spots') renderManualNoteOptions();
+    };
+
+    window.markMealTried = (id) => {
+      const meal = exploreMeals.find(item => item.id === id);
+      if (!meal) return;
+
+      let newId = Date.now();
+      while (meals.some(item => item.id === newId)) newId++;
+      meals.unshift({ ...meal, id: newId });
+      exploreMeals = exploreMeals.filter(item => item.id !== id);
+      exploreHistory = exploreHistory.filter(historyId => historyId !== id);
+      if (editingMeal?.source === 'explore' && editingMeal.id === id) resetMealForm('explore');
+      saveState();
+      renderList('explore');
+      renderList('spots');
       renderManualNoteOptions();
     };
 
-    document.getElementById('cancel-edit').onclick = resetMealForm;
+    document.getElementById('cancel-edit').onclick = () => resetMealForm('spots');
+    document.getElementById('explore-cancel-edit').onclick = () => resetMealForm('explore');
 
-    // Add New Meal
-    document.getElementById('add-form').onsubmit = (e) => {
+    const handleMealSubmit = (e, source) => {
       e.preventDefault();
-      const name = document.getElementById('input-name').value.trim();
-      const emoji = document.getElementById('input-emoji').value.trim() || '🍽️';
-      const categories = [...document.querySelectorAll('#input-category input:checked')].map(el => el.value);
+      const prefix = source === 'explore' ? 'explore-' : '';
+      const name = document.getElementById(`${prefix}input-name`).value.trim();
+      const emoji = document.getElementById(`${prefix}input-emoji`).value.trim() || '🍽️';
+      const categories = [...document.querySelectorAll(`#${prefix}input-category input:checked`)].map(el => el.value);
       if (!name || categories.length === 0) {
         if (categories.length === 0) alert('Choose at least one category.');
         return;
       }
 
-      if (editingMealId !== null) {
-        meals = meals.map(meal => meal.id === editingMealId
+      if (editingMeal?.source === source) {
+        setMeals(source, getMeals(source).map(meal => meal.id === editingMeal.id
           ? { ...meal, name, emoji, categories }
-          : meal);
+          : meal));
       } else {
-        meals.unshift({ id: Date.now(), name, emoji, categories, active: true });
+        setMeals(source, [{ id: Date.now(), name, emoji, categories, active: true }, ...getMeals(source)]);
       }
 
-      resetMealForm();
+      resetMealForm(source);
       saveState();
-      renderList();
-      renderManualNoteOptions();
+      renderList(source);
+      if (source === 'spots') renderManualNoteOptions();
     };
+
+    document.getElementById('add-form').onsubmit = e => handleMealSubmit(e, 'spots');
+    document.getElementById('explore-add-form').onsubmit = e => handleMealSubmit(e, 'explore');
 
     // Navigation Tabs
     document.querySelectorAll('nav button').forEach(btn => {
@@ -603,12 +684,14 @@
         document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
         btn.classList.add('active');
         document.getElementById(`view-${btn.dataset.tab}`).classList.add('active');
-        if (btn.dataset.tab === 'list') renderList();
+        if (btn.dataset.tab === 'list') renderList('spots');
+        if (btn.dataset.tab === 'explore') renderList('explore');
         if (btn.dataset.tab === 'notes') renderNotes();
       };
     });
 
-    document.getElementById('spin-btn').onclick = spinMeal;
+    document.getElementById('spin-btn').onclick = () => spinMeal('spots');
+    document.getElementById('try-new-btn').onclick = () => spinMeal('explore');
 
     // Register Service Worker for Offline PWA Support
     if ('serviceWorker' in navigator) {
@@ -616,7 +699,8 @@
     }
 
     saveState();
-    renderCategoryPicker();
+    renderCategoryPicker('input-category');
+    renderCategoryPicker('explore-input-category');
     renderManualNoteOptions();
     renderChips();
   </script>
