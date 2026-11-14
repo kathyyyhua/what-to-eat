@@ -238,7 +238,10 @@
       </div>
       <div class="row" style="align-items: flex-start;">
         <div id="input-category" class="category-picker" aria-label="Select categories"></div>
-        <button type="submit" class="primary" style="padding: 11px 18px; white-space: nowrap;">+ Add</button>
+        <div style="display: flex; gap: 8px;">
+          <button type="submit" id="submit-meal" class="primary" style="padding: 11px 18px; white-space: nowrap;">+ Add</button>
+          <button type="button" id="cancel-edit" class="secondary" style="display:none; padding: 11px 14px; white-space: nowrap;">Cancel</button>
+        </div>
       </div>
     </form>
 
@@ -283,6 +286,7 @@
     let history = JSON.parse(localStorage.getItem(HISTORY_KEY)) || [];
     let selectedCategory = 'All';
     let currentPick = null;
+    let editingMealId = null;
 
     const saveState = () => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(meals.map(({ category, ...meal }) => ({
@@ -293,14 +297,23 @@
       document.getElementById('count-badge').textContent = meals.filter(m => m.active).length;
     };
 
-    const renderCategoryPicker = () => {
+    const renderCategoryPicker = (selectedCategories = CATEGORIES) => {
       const container = document.getElementById('input-category');
       container.innerHTML = CATEGORIES.map(category => `
         <label class="category-option">
-          <input type="checkbox" value="${category}" checked />
+          <input type="checkbox" value="${category}" ${selectedCategories.includes(category) ? 'checked' : ''} />
           <span>${category}</span>
         </label>
       `).join('');
+    };
+
+    const resetMealForm = () => {
+      editingMealId = null;
+      document.getElementById('input-name').value = '';
+      document.getElementById('input-emoji').value = '🍜';
+      document.getElementById('submit-meal').textContent = '+ Add';
+      document.getElementById('cancel-edit').style.display = 'none';
+      renderCategoryPicker();
     };
 
     // Render Category Filter Chips
@@ -397,6 +410,7 @@
               <div class="item-tag">${categories.length ? categories.join(', ') : 'Uncategorized'}${isRecent ? ' • Ate recently' : ''}</div>
             </div>
             <div class="item-actions">
+              <button class="icon-btn" onclick="editMeal(${m.id})">Edit</button>
               <button class="icon-btn" onclick="toggleMeal(${m.id})">${m.active ? 'Mute' : 'Enable'}</button>
               <button class="icon-btn" onclick="deleteMeal(${m.id})">✕</button>
             </div>
@@ -411,11 +425,27 @@
       renderList();
     };
 
+    window.editMeal = (id) => {
+      const meal = meals.find(m => m.id === id);
+      if (!meal) return;
+
+      editingMealId = id;
+      document.getElementById('input-name').value = meal.name;
+      document.getElementById('input-emoji').value = meal.emoji;
+      renderCategoryPicker(getMealCategories(meal));
+      document.getElementById('submit-meal').textContent = 'Save changes';
+      document.getElementById('cancel-edit').style.display = 'block';
+      document.getElementById('input-name').focus();
+    };
+
     window.deleteMeal = (id) => {
       meals = meals.filter(m => m.id !== id);
+      if (editingMealId === id) resetMealForm();
       saveState();
       renderList();
     };
+
+    document.getElementById('cancel-edit').onclick = resetMealForm;
 
     // Add New Meal
     document.getElementById('add-form').onsubmit = (e) => {
@@ -428,9 +458,15 @@
         return;
       }
 
-      meals.unshift({ id: Date.now(), name, emoji, categories, active: true });
-      document.getElementById('input-name').value = '';
-      renderCategoryPicker();
+      if (editingMealId !== null) {
+        meals = meals.map(meal => meal.id === editingMealId
+          ? { ...meal, name, emoji, categories }
+          : meal);
+      } else {
+        meals.unshift({ id: Date.now(), name, emoji, categories, active: true });
+      }
+
+      resetMealForm();
       saveState();
       renderList();
     };
