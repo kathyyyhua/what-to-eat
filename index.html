@@ -324,9 +324,9 @@
 
   <nav>
     <button class="active" data-tab="decide">🎲 Decide</button>
-    <button data-tab="explore">🧭 Explore (<span id="explore-count-badge">0</span>)</button>
-    <button data-tab="list">📋 My Spots (<span id="count-badge">0</span>)</button>
-    <button data-tab="notes">📝 Notes (<span id="notes-count-badge">0</span>)</button>
+    <button data-tab="explore">🧭 Explore</button>
+    <button data-tab="list">📋 My Spots</button>
+    <button data-tab="notes">📝 Notes</button>
   </nav>
 
   <script>
@@ -387,9 +387,6 @@
       localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
       localStorage.setItem(EXPLORE_HISTORY_KEY, JSON.stringify(exploreHistory));
       localStorage.setItem(LOCKED_PICKS_KEY, JSON.stringify(lockedPicks));
-      document.getElementById('count-badge').textContent = meals.filter(m => m.active).length;
-      document.getElementById('explore-count-badge').textContent = exploreMeals.filter(m => m.active).length;
-      document.getElementById('notes-count-badge').textContent = lockedPicks.length;
     };
 
     const getMeals = source => source === 'explore' ? exploreMeals : meals;
