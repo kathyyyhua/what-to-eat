@@ -464,11 +464,17 @@
         const meta = document.createElement('div');
         meta.className = 'item-tag';
         const categories = pick.categories.join(', ') || 'Uncategorized';
-        const time = new Date(pick.lockedAt).toLocaleTimeString('en-US', {
+        const lockedAt = new Date(pick.lockedAt);
+        const date = lockedAt.toLocaleDateString('en-US', {
+          month: 'numeric',
+          day: 'numeric',
+          year: 'numeric'
+        });
+        const time = lockedAt.toLocaleTimeString('en-US', {
           hour: 'numeric',
           minute: '2-digit'
         });
-        meta.textContent = `${time} • ${categories}`;
+        meta.textContent = `${date} ${time} • ${categories}`;
 
         const actions = document.createElement('div');
         actions.className = 'item-actions';
