@@ -181,20 +181,6 @@
       font-size: 12px;
       cursor: pointer;
     }
-    .locked-pick {
-      background: var(--card);
-      border-radius: 16px;
-      padding: 14px 16px;
-      margin-bottom: 10px;
-    }
-    .locked-pick-title { font-weight: 600; font-size: 15px; }
-    .locked-pick-meta { margin-top: 4px; font-size: 12px; color: var(--muted); }
-    .locked-pick-note {
-      margin-top: 12px;
-      white-space: pre-wrap;
-    }
-    .locked-pick-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
-
     /* Bottom Tab Bar */
     nav {
       position: fixed;
@@ -466,28 +452,35 @@
 
       [...lockedPicks].reverse().forEach(pick => {
         const card = document.createElement('div');
-        card.className = 'locked-pick';
+        card.className = 'list-item';
+
+        const info = document.createElement('div');
+        info.className = 'item-info';
 
         const title = document.createElement('div');
-        title.className = 'locked-pick-title';
+        title.className = 'item-title';
         title.textContent = `${pick.emoji} ${pick.name}`;
 
         const meta = document.createElement('div');
-        meta.className = 'locked-pick-meta';
+        meta.className = 'item-tag';
         const categories = pick.categories.join(', ') || 'Uncategorized';
-        meta.textContent = `${new Date(pick.lockedAt).toLocaleString()} • ${categories}`;
-
-        const note = pick.note ? document.createElement('p') : null;
-        if (note) {
-          note.className = 'locked-pick-note';
-          note.textContent = pick.note;
-        }
+        const lockedAt = new Date(pick.lockedAt);
+        const date = lockedAt.toLocaleDateString('en-US', {
+          month: 'numeric',
+          day: 'numeric',
+          year: 'numeric'
+        });
+        const time = lockedAt.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit'
+        });
+        meta.textContent = `${date} ${time} • ${categories}`;
 
         const actions = document.createElement('div');
-        actions.className = 'locked-pick-actions';
+        actions.className = 'item-actions';
         const deleteButton = document.createElement('button');
         deleteButton.className = 'icon-btn';
-        deleteButton.textContent = 'Delete';
+        deleteButton.textContent = '✕';
         deleteButton.setAttribute('aria-label', `Delete note for ${pick.name}`);
         deleteButton.addEventListener('click', () => {
           lockedPicks = lockedPicks.filter(entry => entry.id !== pick.id);
@@ -495,10 +488,9 @@
           renderNotes();
         });
 
+        info.append(title, meta);
         actions.append(deleteButton);
-        card.append(title, meta);
-        if (note) card.append(note);
-        card.append(actions);
+        card.append(info, actions);
         container.append(card);
       });
     };
