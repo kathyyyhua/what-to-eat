@@ -154,6 +154,9 @@
     .form-actions { display: flex; gap: 8px; width: 100%; }
     .form-actions .primary { flex: 1; padding: 11px 18px; white-space: nowrap; }
     .form-actions .secondary { padding: 11px 14px; white-space: nowrap; }
+    .manual-note-form .row { align-items: center; }
+    .manual-note-form select { flex: 1; min-width: 0; }
+    .manual-note-form .primary { padding: 11px 18px; white-space: nowrap; }
     input, select {
       width: 100%;
       padding: 11px 12px;
@@ -227,7 +230,7 @@
     <div class="btn-group">
       <button class="primary" id="spin-btn">Spin for a Meal</button>
       <button class="secondary" id="lock-btn" style="display:none;">Lock It In (Won't Repeat Next 3 Picks)</button>
-      <button class="secondary" id="copy-btn" style="display:none;">Copy Result to Shrae</button>
+      <button class="secondary" id="copy-btn" style="display:none;">Copy Result to Share</button>
     </div>
   </main>
 
@@ -252,6 +255,12 @@
 
   <!-- TAB 3: NOTES -->
   <main id="view-notes" class="view">
+    <form class="add-form manual-note-form" id="manual-note-form">
+      <div class="row">
+        <select id="manual-note-meal" aria-label="Select a saved spot" required></select>
+        <button type="submit" class="primary">Add</button>
+      </div>
+    </form>
     <div id="locked-picks-list"></div>
   </main>
 
@@ -396,16 +405,7 @@
       if (!currentPick) return;
       history.push(currentPick.id);
       if (history.length > 10) history.shift();
-      lockedPicks.push({
-        id: Date.now(),
-        mealId: currentPick.id,
-        name: currentPick.name,
-        emoji: currentPick.emoji,
-        categories: getMealCategories(currentPick),
-        lockedAt: new Date().toISOString()
-      });
-      saveState();
-      renderNotes();
+      addLockedPick(currentPick);
       this.classList.add('locked');
       this.disabled = true;
       this.textContent = '✓ Locked In!';
@@ -498,6 +498,50 @@
       });
     };
 
+    const addLockedPick = (meal) => {
+      lockedPicks.push({
+        id: Date.now(),
+        mealId: meal.id,
+        name: meal.name,
+        emoji: meal.emoji,
+        categories: getMealCategories(meal),
+        lockedAt: new Date().toISOString()
+      });
+      saveState();
+      renderNotes();
+    };
+
+    const renderManualNoteOptions = () => {
+      const select = document.getElementById('manual-note-meal');
+      const selectedId = select.value;
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = meals.length ? 'Select a saved spot...' : 'No saved spots yet';
+      select.replaceChildren(placeholder);
+
+      meals.forEach(meal => {
+        const option = document.createElement('option');
+        option.value = String(meal.id);
+        option.textContent = `${meal.emoji} ${meal.name}`;
+        select.append(option);
+      });
+
+      if (meals.some(meal => String(meal.id) === selectedId)) {
+        select.value = selectedId;
+      }
+      document.querySelector('#manual-note-form button[type="submit"]').disabled = meals.length === 0;
+    };
+
+    document.getElementById('manual-note-form').onsubmit = (e) => {
+      e.preventDefault();
+      const selectedMeal = meals.find(meal => String(meal.id) === document.getElementById('manual-note-meal').value);
+      if (!selectedMeal) return;
+
+      addLockedPick(selectedMeal);
+      e.currentTarget.reset();
+      renderManualNoteOptions();
+    };
+
     window.toggleMeal = (id) => {
       meals = meals.map(m => m.id === id ? { ...m, active: !m.active } : m);
       saveState();
@@ -522,6 +566,7 @@
       if (editingMealId === id) resetMealForm();
       saveState();
       renderList();
+      renderManualNoteOptions();
     };
 
     document.getElementById('cancel-edit').onclick = resetMealForm;
@@ -548,6 +593,7 @@
       resetMealForm();
       saveState();
       renderList();
+      renderManualNoteOptions();
     };
 
     // Navigation Tabs
@@ -571,6 +617,7 @@
 
     saveState();
     renderCategoryPicker();
+    renderManualNoteOptions();
     renderChips();
   </script>
 </body>
