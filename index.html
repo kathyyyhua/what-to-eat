@@ -151,6 +151,9 @@
       gap: 10px;
     }
     .row { display: flex; gap: 8px; }
+    .form-actions { display: flex; gap: 8px; width: 100%; }
+    .form-actions .primary { flex: 1; padding: 11px 18px; white-space: nowrap; }
+    .form-actions .secondary { padding: 11px 14px; white-space: nowrap; }
     input, select {
       width: 100%;
       padding: 11px 12px;
@@ -235,12 +238,12 @@
         <input type="text" id="input-emoji" value="🍜" maxlength="2" style="width: 56px; text-align:center;" />
         <input type="text" id="input-name" placeholder="Restaurant or dish name..." required />
       </div>
-      <div class="row" style="align-items: flex-start;">
+      <div class="row">
         <div id="input-category" class="category-picker" aria-label="Select categories"></div>
-        <div style="display: flex; gap: 8px;">
-          <button type="submit" id="submit-meal" class="primary" style="padding: 11px 18px; white-space: nowrap;">+ Add</button>
-          <button type="button" id="cancel-edit" class="secondary" style="display:none; padding: 11px 14px; white-space: nowrap;">Cancel</button>
-        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit" id="submit-meal" class="primary">+ Add</button>
+        <button type="button" id="cancel-edit" class="secondary" style="display:none;">Cancel</button>
       </div>
     </form>
 
