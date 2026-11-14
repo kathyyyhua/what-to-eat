@@ -155,7 +155,41 @@
     .form-actions .primary { flex: 1; padding: 11px 18px; white-space: nowrap; }
     .form-actions .secondary { padding: 11px 14px; white-space: nowrap; }
     .manual-note-form .row { align-items: center; }
-    .manual-note-form select { flex: 1; min-width: 0; }
+    .manual-note-search { position: relative; flex: 1; min-width: 0; }
+    .manual-note-search input { width: 100%; }
+    .manual-note-results {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      z-index: 10;
+      max-height: 240px;
+      overflow-y: auto;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+    }
+    .manual-note-result {
+      display: block;
+      width: 100%;
+      padding: 11px 12px;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      text-align: left;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .manual-note-result:hover, .manual-note-result:focus {
+      background: var(--bg);
+      outline: none;
+    }
+    .manual-note-empty {
+      padding: 11px 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
     .manual-note-form .primary { padding: 11px 18px; white-space: nowrap; }
     input, select {
       width: 100%;
@@ -277,7 +311,11 @@
   <main id="view-notes" class="view">
     <form class="add-form manual-note-form" id="manual-note-form">
       <div class="row">
-        <select id="manual-note-meal" aria-label="Select a saved spot" required></select>
+        <div class="manual-note-search">
+          <input type="search" id="manual-note-search" placeholder="Search saved spots..." aria-label="Search saved spots" aria-controls="manual-note-results" aria-expanded="false" autocomplete="off" required />
+          <input type="hidden" id="manual-note-meal" />
+          <div id="manual-note-results" class="manual-note-results" role="listbox" hidden></div>
+        </div>
         <button type="submit" class="primary">Add</button>
       </div>
     </form>
@@ -571,25 +609,76 @@
     };
 
     const renderManualNoteOptions = () => {
-      const select = document.getElementById('manual-note-meal');
-      const selectedId = select.value;
-      const placeholder = document.createElement('option');
-      placeholder.value = '';
-      placeholder.textContent = meals.length ? 'Select a saved spot...' : 'No saved spots yet';
-      select.replaceChildren(placeholder);
+      const search = document.getElementById('manual-note-search');
+      const selectedMealInput = document.getElementById('manual-note-meal');
+      const results = document.getElementById('manual-note-results');
+      const selectedMeal = meals.find(meal => String(meal.id) === selectedMealInput.value);
+      const query = search.value.trim().toLowerCase();
+      const addButton = document.querySelector('#manual-note-form button[type="submit"]');
 
-      meals.forEach(meal => {
-        const option = document.createElement('option');
-        option.value = String(meal.id);
-        option.textContent = `${meal.emoji} ${meal.name}`;
-        select.append(option);
-      });
-
-      if (meals.some(meal => String(meal.id) === selectedId)) {
-        select.value = selectedId;
+      if (selectedMeal) {
+        search.value = `${selectedMeal.emoji} ${selectedMeal.name}`;
+        results.replaceChildren();
+        results.hidden = true;
+        search.setAttribute('aria-expanded', 'false');
+        addButton.disabled = false;
+        return;
       }
-      document.querySelector('#manual-note-form button[type="submit"]').disabled = meals.length === 0;
+
+      if (selectedMealInput.value) {
+        selectedMealInput.value = '';
+        search.value = '';
+      }
+
+      search.disabled = meals.length === 0;
+      search.placeholder = meals.length ? 'Search saved spots...' : 'No saved spots yet';
+      addButton.disabled = true;
+      results.replaceChildren();
+      results.hidden = true;
+      search.setAttribute('aria-expanded', 'false');
+
+      if (!query) return;
+
+      const matches = meals.filter(meal => `${meal.emoji} ${meal.name}`.toLowerCase().includes(query));
+      if (matches.length === 0) {
+        const emptyMessage = document.createElement('div');
+        emptyMessage.className = 'manual-note-empty';
+        emptyMessage.textContent = 'No matching saved spots';
+        results.append(emptyMessage);
+      } else {
+        matches.forEach(meal => {
+          const option = document.createElement('button');
+          option.type = 'button';
+          option.className = 'manual-note-result';
+          option.setAttribute('role', 'option');
+          option.textContent = `${meal.emoji} ${meal.name}`;
+          option.addEventListener('click', () => {
+            selectedMealInput.value = String(meal.id);
+            search.value = `${meal.emoji} ${meal.name}`;
+            results.replaceChildren();
+            results.hidden = true;
+            search.setAttribute('aria-expanded', 'false');
+            addButton.disabled = false;
+          });
+          results.append(option);
+        });
+      }
+      results.hidden = false;
+      search.setAttribute('aria-expanded', 'true');
     };
+
+    const manualNoteSearch = document.getElementById('manual-note-search');
+    manualNoteSearch.addEventListener('input', () => {
+      document.getElementById('manual-note-meal').value = '';
+      renderManualNoteOptions();
+    });
+    document.addEventListener('click', (event) => {
+      if (!manualNoteSearch.parentElement.contains(event.target)) {
+        const results = document.getElementById('manual-note-results');
+        results.hidden = true;
+        manualNoteSearch.setAttribute('aria-expanded', 'false');
+      }
+    });
 
     document.getElementById('manual-note-form').onsubmit = (e) => {
       e.preventDefault();
