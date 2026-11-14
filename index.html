@@ -297,7 +297,7 @@
       document.getElementById('count-badge').textContent = meals.filter(m => m.active).length;
     };
 
-    const renderCategoryPicker = (selectedCategories = CATEGORIES) => {
+    const renderCategoryPicker = (selectedCategories = []) => {
       const container = document.getElementById('input-category');
       container.innerHTML = CATEGORIES.map(category => `
         <label class="category-option">
