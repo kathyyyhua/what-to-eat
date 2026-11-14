@@ -1,4 +1,4 @@
-const CACHE_NAME = 'what-to-eat-v8';
+const CACHE_NAME = 'what-to-eat-v9';
 const ASSETS = ['./', './index.html', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', (e) => {
