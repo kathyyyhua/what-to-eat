@@ -257,12 +257,14 @@
     const STORAGE_KEY = 'wte_meals_v1';
     const HISTORY_KEY = 'wte_history_v1';
     const NO_REPEAT_COUNT = 3;
-    const CATEGORIES = ['Quick', 'Healthy', 'Dine-in', 'Comfort', 'Cafe', 'Chinese', 'Brunch'];
+    const CATEGORIES = ['Quick', 'Healthy', 'Dine-in', 'Comfort', 'Coffee', 'Chinese', 'Brunch', 'Bakery'];
 
     const normalizeMealCategories = (meal = {}) => {
       const rawCategories = Array.isArray(meal.categories) ? meal.categories : [];
       const singleCategory = typeof meal.category === 'string' && meal.category ? [meal.category] : [];
-      const categories = [...rawCategories, ...singleCategory].filter(Boolean);
+      const categories = [...rawCategories, ...singleCategory]
+        .filter(Boolean)
+        .map(category => category === 'Cafe' ? 'Coffee' : category);
       return [...new Set(categories)];
     };
 
@@ -275,7 +277,7 @@
       { id: 4, name: 'Ramen / Izakaya', emoji: '🍜', categories: ['Dine-in'], active: true },
       { id: 5, name: 'Steak & Fries', emoji: '🥩', categories: ['Dine-in'], active: true },
       { id: 6, name: 'Tacos / Burrito Bowl', emoji: '🌮', categories: ['Quick'], active: true },
-      { id: 7, name: 'Iced Latte & Pastry', emoji: '🥐', categories: ['Cafe'], active: true },
+      { id: 7, name: 'Iced Latte & Pastry', emoji: '🥐', categories: ['Coffee'], active: true },
       { id: 8, name: 'Hot Pot / BBQ', emoji: '🍲', categories: ['Comfort'], active: true }
     ];
 
