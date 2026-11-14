@@ -181,6 +181,19 @@
       font-size: 12px;
       cursor: pointer;
     }
+    .locked-pick {
+      background: var(--card);
+      border-radius: 16px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+    }
+    .locked-pick-title { font-weight: 600; font-size: 15px; }
+    .locked-pick-meta { margin-top: 4px; font-size: 12px; color: var(--muted); }
+    .locked-pick-note {
+      min-height: 76px;
+      margin-top: 12px;
+      resize: vertical;
+    }
 
     /* Bottom Tab Bar */
     nav {
@@ -225,7 +238,7 @@
     <div class="btn-group">
       <button class="primary" id="spin-btn">Spin for a Meal</button>
       <button class="secondary" id="lock-btn" style="display:none;">Lock It In (Won't Repeat Next 3 Picks)</button>
-      <button class="secondary" id="copy-btn" style="display:none;">Copy Result to Share in WeChat</button>
+      <button class="secondary" id="copy-btn" style="display:none;">Copy Result to Shrae</button>
     </div>
   </main>
 
@@ -248,14 +261,21 @@
     <div id="meal-list"></div>
   </main>
 
+  <!-- TAB 3: NOTES -->
+  <main id="view-notes" class="view">
+    <div id="locked-picks-list"></div>
+  </main>
+
   <nav>
     <button class="active" data-tab="decide">🎲 Decide</button>
     <button data-tab="list">📋 My Spots (<span id="count-badge">0</span>)</button>
+    <button data-tab="notes">📝 Notes (<span id="notes-count-badge">0</span>)</button>
   </nav>
 
   <script>
     const STORAGE_KEY = 'wte_meals_v1';
     const HISTORY_KEY = 'wte_history_v1';
+    const LOCKED_PICKS_KEY = 'wte_locked_picks_v1';
     const NO_REPEAT_COUNT = 3;
     const CATEGORIES = ['Quick', 'Healthy', 'Dine-in', 'Comfort', 'Coffee', 'Chinese', 'Brunch', 'Bakery'];
 
@@ -286,6 +306,7 @@
       categories: normalizeMealCategories(meal)
     }));
     let history = JSON.parse(localStorage.getItem(HISTORY_KEY)) || [];
+    let lockedPicks = JSON.parse(localStorage.getItem(LOCKED_PICKS_KEY)) || [];
     let selectedCategory = 'All';
     let currentPick = null;
     let editingMealId = null;
@@ -296,7 +317,9 @@
         categories: getMealCategories(meal)
       }))));
       localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+      localStorage.setItem(LOCKED_PICKS_KEY, JSON.stringify(lockedPicks));
       document.getElementById('count-badge').textContent = meals.filter(m => m.active).length;
+      document.getElementById('notes-count-badge').textContent = lockedPicks.length;
     };
 
     const renderCategoryPicker = (selectedCategories = []) => {
@@ -353,6 +376,7 @@
       const copyBtn = document.getElementById('copy-btn');
       card.classList.add('spinning');
       lockBtn.classList.remove('locked');
+      lockBtn.disabled = false;
       lockBtn.textContent = "Lock It In (Won't Repeat Next 3 Picks)";
 
       let ticks = 0;
@@ -378,13 +402,24 @@
       }, 65);
     };
 
-    // Lock In Choice (updates history)
+    // Lock In Choice (updates history and saved notes)
     document.getElementById('lock-btn').onclick = function() {
       if (!currentPick) return;
       history.push(currentPick.id);
       if (history.length > 10) history.shift();
+      lockedPicks.push({
+        id: Date.now(),
+        mealId: currentPick.id,
+        name: currentPick.name,
+        emoji: currentPick.emoji,
+        categories: getMealCategories(currentPick),
+        lockedAt: new Date().toISOString(),
+        note: ''
+      });
       saveState();
+      renderNotes();
       this.classList.add('locked');
+      this.disabled = true;
       this.textContent = '✓ Locked In!';
     };
 
@@ -419,6 +454,45 @@
           </div>
         `;
       }).join('');
+    };
+
+    const renderNotes = () => {
+      const container = document.getElementById('locked-picks-list');
+      container.replaceChildren();
+
+      if (lockedPicks.length === 0) {
+        container.textContent = 'Locked-in meals will appear here for notes.';
+        return;
+      }
+
+      [...lockedPicks].reverse().forEach(pick => {
+        const card = document.createElement('div');
+        card.className = 'locked-pick';
+
+        const title = document.createElement('div');
+        title.className = 'locked-pick-title';
+        title.textContent = `${pick.emoji} ${pick.name}`;
+
+        const meta = document.createElement('div');
+        meta.className = 'locked-pick-meta';
+        const categories = pick.categories.join(', ') || 'Uncategorized';
+        meta.textContent = `${new Date(pick.lockedAt).toLocaleString()} • ${categories}`;
+
+        const note = document.createElement('textarea');
+        note.className = 'locked-pick-note';
+        note.placeholder = 'Add a note...';
+        note.setAttribute('aria-label', `Note for ${pick.name}`);
+        note.value = pick.note || '';
+        note.addEventListener('change', () => {
+          lockedPicks = lockedPicks.map(entry => entry.id === pick.id
+            ? { ...entry, note: note.value }
+            : entry);
+          saveState();
+        });
+
+        card.append(title, meta, note);
+        container.append(card);
+      });
     };
 
     window.toggleMeal = (id) => {
@@ -481,6 +555,7 @@
         btn.classList.add('active');
         document.getElementById(`view-${btn.dataset.tab}`).classList.add('active');
         if (btn.dataset.tab === 'list') renderList();
+        if (btn.dataset.tab === 'notes') renderNotes();
       };
     });
 
