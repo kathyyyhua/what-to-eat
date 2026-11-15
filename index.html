@@ -215,6 +215,15 @@
     .shared-list-item input { width: auto; margin: 0; flex: 0 0 auto; accent-color: var(--primary); }
     .shared-list-item-info { min-width: 0; }
     .shared-list-item .item-title { font-size: 14px; }
+    .shared-list-name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .duplicate-tag {
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: #fff1e8;
+      color: #a84320;
+      font-size: 10px;
+      font-weight: 700;
+    }
     .shared-list-actions { display: flex; gap: 8px; }
     .shared-list-actions button { flex: 1; padding: 11px 12px; }
     input, select {
@@ -917,13 +926,21 @@
         checkbox.type = 'checkbox';
         checkbox.className = 'shared-list-item-checkbox';
         checkbox.value = String(index);
-        checkbox.setAttribute('aria-label', `Select ${meal.name} to import`);
+        checkbox.setAttribute('aria-label', `Select ${meal.name} to import${meal.duplicate ? ', duplicated in My Spots' : ''}`);
         checkbox.addEventListener('change', updateImportSelection);
         const title = document.createElement('div');
         title.className = 'shared-list-item-info';
         const name = document.createElement('div');
-        name.className = 'item-title';
-        name.textContent = `${meal.emoji} ${meal.name}`;
+        name.className = 'item-title shared-list-name-row';
+        const nameText = document.createElement('span');
+        nameText.textContent = `${meal.emoji} ${meal.name}`;
+        name.append(nameText);
+        if (meal.duplicate) {
+          const duplicateTag = document.createElement('span');
+          duplicateTag.className = 'duplicate-tag';
+          duplicateTag.textContent = 'Duplicated';
+          name.append(duplicateTag);
+        }
         const details = document.createElement('div');
         details.className = 'item-tag';
         details.textContent = `${meal.categories.join(', ') || 'Uncategorized'}${meal.active ? '' : ' • Muted'}`;
@@ -955,9 +972,17 @@
       description.textContent = '';
 
       try {
-        incomingSharedList = await decodeSharedMeals(payload);
+        const existingNames = new Set(meals.map(meal => meal.name.trim().replace(/\s+/g, ' ').toLowerCase()));
+        incomingSharedList = (await decodeSharedMeals(payload)).map(meal => ({
+          ...meal,
+          duplicate: existingNames.has(meal.name.trim().replace(/\s+/g, ' ').toLowerCase())
+        }));
         title.textContent = 'Shared My Spots';
-        description.textContent = `Select the spots you want. Importing adds them to your list without replacing your existing My Spots.`;
+        const duplicateCount = incomingSharedList.filter(meal => meal.duplicate).length;
+        const duplicateNote = duplicateCount
+          ? ` ${duplicateCount} potential duplicate${duplicateCount === 1 ? '' : 's'} marked as Duplicated.`
+          : '';
+        description.textContent = `Select the spots you want to import.${duplicateNote} Importing adds them without replacing your existing My Spots.`;
         renderSharedListPreview(incomingSharedList);
       } catch (error) {
         console.error('Unable to load shared list:', error);
@@ -1010,7 +1035,13 @@
       let nextId = Date.now();
       const importedMeals = selectedMeals.map(meal => {
         while (usedIds.has(nextId)) nextId++;
-        const imported = { ...meal, id: nextId };
+        const imported = {
+          id: nextId,
+          name: meal.name,
+          emoji: meal.emoji,
+          categories: meal.categories,
+          active: meal.active
+        };
         usedIds.add(nextId);
         nextId++;
         return imported;
