@@ -191,6 +191,23 @@
       font-size: 13px;
     }
     .manual-note-form .primary { padding: 11px 18px; white-space: nowrap; }
+    .share-list-action { margin: -6px 0 18px; }
+    .share-list-action button { width: 100%; }
+    .shared-list-panel {
+      max-width: 480px;
+      margin: 12px auto;
+      padding: 16px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+    }
+    .shared-list-panel h2 { margin: 0 0 6px; font-size: 18px; }
+    .shared-list-panel p { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+    .shared-list-items { max-height: 240px; overflow-y: auto; margin-bottom: 12px; }
+    .shared-list-item { padding: 8px 0; border-top: 1px solid var(--border); }
+    .shared-list-item .item-title { font-size: 14px; }
+    .shared-list-actions { display: flex; gap: 8px; }
+    .shared-list-actions button { flex: 1; padding: 11px 12px; }
     input, select {
       width: 100%;
       padding: 11px 12px;
@@ -251,6 +268,16 @@
     <p id="subtitle">No-repeat daily meal picker</p>
   </header>
 
+  <section id="shared-list-panel" class="shared-list-panel" aria-labelledby="shared-list-title" hidden>
+    <h2 id="shared-list-title">Shared My Spots</h2>
+    <p id="shared-list-description"></p>
+    <div id="shared-list-items" class="shared-list-items"></div>
+    <div class="shared-list-actions">
+      <button type="button" class="primary" id="import-shared-list-btn">Import to My Spots</button>
+      <button type="button" class="secondary" id="dismiss-shared-list-btn">Not now</button>
+    </div>
+  </section>
+
   <!-- TAB 1: DECIDE -->
   <main id="view-decide" class="view active">
     <div class="chips" id="filter-chips"></div>
@@ -304,6 +331,9 @@
       </div>
     </form>
 
+    <div class="share-list-action">
+      <button type="button" class="secondary" id="share-list-btn">Export / Share List</button>
+    </div>
     <div id="meal-list"></div>
   </main>
 
@@ -349,6 +379,102 @@
 
     const getMealCategories = (meal) => normalizeMealCategories(meal);
 
+    const encodeBase64Url = bytes => {
+      let binary = '';
+      for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+      }
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    };
+
+    const decodeBase64Url = value => {
+      const base64 = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
+      const binary = atob(base64);
+      return Uint8Array.from(binary, character => character.charCodeAt(0));
+    };
+
+    const readStreamBytes = async (stream, maxBytes = 1_000_000) => {
+      const reader = stream.getReader();
+      const chunks = [];
+      let totalBytes = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        totalBytes += value.byteLength;
+        if (totalBytes > maxBytes) {
+          await reader.cancel();
+          throw new Error('Shared list is too large');
+        }
+        chunks.push(value);
+      }
+
+      const result = new Uint8Array(totalBytes);
+      let offset = 0;
+      chunks.forEach(chunk => {
+        result.set(chunk, offset);
+        offset += chunk.byteLength;
+      });
+      return result;
+    };
+
+    const encodeSharedMeals = async mealList => {
+      const items = mealList.map(meal => ({
+        n: meal.name,
+        e: meal.emoji,
+        c: getMealCategories(meal),
+        a: Boolean(meal.active)
+      }));
+      if (items.length > 500) throw new Error('A list can contain up to 500 spots.');
+
+      const jsonBytes = new TextEncoder().encode(JSON.stringify({ v: 1, i: items }));
+      let prefix = 'j';
+      let bytes = jsonBytes;
+      if (typeof CompressionStream === 'function') {
+        const compressedStream = new Blob([jsonBytes]).stream().pipeThrough(new CompressionStream('deflate'));
+        bytes = await readStreamBytes(compressedStream);
+        prefix = 'z';
+      }
+
+      const payload = `${prefix}${encodeBase64Url(bytes)}`;
+      if (payload.length > 20000) throw new Error('This list is too large to share in a URL.');
+      return payload;
+    };
+
+    const decodeSharedMeals = async payload => {
+      if (!payload || payload.length > 20000) throw new Error('Invalid shared list');
+      const prefix = payload[0];
+      const encodedBytes = decodeBase64Url(payload.slice(1));
+      let jsonBytes = encodedBytes;
+
+      if (prefix === 'z') {
+        if (typeof DecompressionStream !== 'function') throw new Error('Compressed links are not supported in this browser.');
+        const decompressedStream = new Blob([encodedBytes]).stream().pipeThrough(new DecompressionStream('deflate'));
+        jsonBytes = await readStreamBytes(decompressedStream);
+      } else if (prefix !== 'j') {
+        throw new Error('Unsupported shared list format');
+      }
+
+      const sharedData = JSON.parse(new TextDecoder().decode(jsonBytes));
+      if (!sharedData || sharedData.v !== 1 || !Array.isArray(sharedData.i) || sharedData.i.length === 0 || sharedData.i.length > 500) {
+        throw new Error('Invalid shared list');
+      }
+
+      return sharedData.i.map(item => {
+        if (!item || typeof item.n !== 'string' || !item.n.trim() || item.n.length > 200 ||
+            typeof item.e !== 'string' || item.e.length > 16 ||
+            !Array.isArray(item.c) || item.c.length > CATEGORIES.length ||
+            item.c.some(category => !CATEGORIES.includes(category)) || typeof item.a !== 'boolean') {
+          throw new Error('Invalid shared list item');
+        }
+        return {
+          name: item.n.trim(),
+          emoji: item.e,
+          categories: [...new Set(item.c)],
+          active: item.a
+        };
+      });
+    };
+
     const DEFAULT_MEALS = [
       { id: 1, name: 'Grilled Chicken Salad', emoji: '🥗', categories: ['Healthy'], active: true },
       { id: 2, name: 'Poke Bowl', emoji: '🐟', categories: ['Healthy'], active: true },
@@ -376,6 +502,7 @@
     let currentPickSource = 'spots';
     let spinInterval = null;
     let editingMeal = null;
+    let incomingSharedList = null;
 
     const saveState = () => {
       const serializeMeals = list => list.map(({ category, ...meal }) => ({
@@ -387,6 +514,7 @@
       localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
       localStorage.setItem(EXPLORE_HISTORY_KEY, JSON.stringify(exploreHistory));
       localStorage.setItem(LOCKED_PICKS_KEY, JSON.stringify(lockedPicks));
+      document.getElementById('share-list-btn').disabled = meals.length === 0;
     };
 
     const getMeals = source => source === 'explore' ? exploreMeals : meals;
@@ -763,6 +891,122 @@
     document.getElementById('add-form').onsubmit = e => handleMealSubmit(e, 'spots');
     document.getElementById('explore-add-form').onsubmit = e => handleMealSubmit(e, 'explore');
 
+    const clearShareHash = () => {
+      const url = new URL(window.location.href);
+      url.hash = '';
+      window.history.replaceState(window.history.state, '', url);
+    };
+
+    const renderSharedListPreview = sharedMeals => {
+      const itemsContainer = document.getElementById('shared-list-items');
+      itemsContainer.replaceChildren();
+      sharedMeals.forEach(meal => {
+        const row = document.createElement('div');
+        row.className = 'shared-list-item';
+        const title = document.createElement('div');
+        title.className = 'item-title';
+        title.textContent = `${meal.emoji} ${meal.name}`;
+        const details = document.createElement('div');
+        details.className = 'item-tag';
+        details.textContent = `${meal.categories.join(', ') || 'Uncategorized'}${meal.active ? '' : ' • Muted'}`;
+        row.append(title, details);
+        itemsContainer.append(row);
+      });
+    };
+
+    const loadSharedListFromUrl = async () => {
+      const payload = new URLSearchParams(window.location.hash.slice(1)).get('share');
+      if (!payload) return;
+
+      const panel = document.getElementById('shared-list-panel');
+      const title = document.getElementById('shared-list-title');
+      const description = document.getElementById('shared-list-description');
+      const importButton = document.getElementById('import-shared-list-btn');
+      panel.hidden = false;
+      importButton.disabled = true;
+      title.textContent = 'Loading shared My Spots...';
+      description.textContent = '';
+
+      try {
+        incomingSharedList = await decodeSharedMeals(payload);
+        title.textContent = 'Shared My Spots';
+        description.textContent = `This list has ${incomingSharedList.length} spot${incomingSharedList.length === 1 ? '' : 's'}. Importing adds them to your list without replacing your existing My Spots.`;
+        renderSharedListPreview(incomingSharedList);
+        importButton.disabled = false;
+      } catch (error) {
+        console.error('Unable to load shared list:', error);
+        incomingSharedList = null;
+        title.textContent = 'Could not open shared My Spots';
+        description.textContent = error.message === 'Compressed links are not supported in this browser.'
+          ? error.message
+          : 'This link is invalid or too large. Ask your friend to create a new share link.';
+        document.getElementById('shared-list-items').replaceChildren();
+      }
+    };
+
+    document.getElementById('share-list-btn').onclick = async () => {
+      try {
+        const payload = await encodeSharedMeals(meals);
+        const shareUrl = new URL(window.location.href);
+        shareUrl.hash = `share=${payload}`;
+        const shareData = {
+          title: 'My Spots',
+          text: 'Here is my What to Eat list.',
+          url: shareUrl.toString()
+        };
+
+        if (navigator.share) {
+          try {
+            await navigator.share(shareData);
+            return;
+          } catch (error) {
+            if (error.name === 'AbortError') return;
+          }
+        }
+
+        if (navigator.clipboard?.writeText) {
+          try {
+            await navigator.clipboard.writeText(shareData.url);
+            alert('Share link copied to clipboard.');
+            return;
+          } catch (error) {
+            console.error('Unable to copy share link:', error);
+          }
+        }
+        window.prompt('Copy and share this link:', shareData.url);
+      } catch (error) {
+        console.error('Unable to create share link:', error);
+        alert(error.message || 'Unable to create share link.');
+      }
+    };
+
+    document.getElementById('import-shared-list-btn').onclick = () => {
+      if (!incomingSharedList) return;
+
+      const usedIds = new Set(meals.map(meal => meal.id));
+      let nextId = Date.now();
+      const importedMeals = incomingSharedList.map(meal => {
+        while (usedIds.has(nextId)) nextId++;
+        const imported = { ...meal, id: nextId };
+        usedIds.add(nextId);
+        nextId++;
+        return imported;
+      });
+      meals = [...importedMeals, ...meals];
+      saveState();
+      renderList('spots');
+      incomingSharedList = null;
+      document.getElementById('shared-list-panel').hidden = true;
+      clearShareHash();
+      document.querySelector('nav button[data-tab="list"]').click();
+    };
+
+    document.getElementById('dismiss-shared-list-btn').onclick = () => {
+      incomingSharedList = null;
+      document.getElementById('shared-list-panel').hidden = true;
+      clearShareHash();
+    };
+
     // Navigation Tabs
     document.querySelectorAll('nav button').forEach(btn => {
       btn.onclick = () => {
@@ -789,6 +1033,7 @@
     renderCategoryPicker('explore-input-category');
     renderManualNoteOptions();
     renderChips();
+    loadSharedListFromUrl();
   </script>
 </body>
 </html>
