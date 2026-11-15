@@ -330,6 +330,9 @@
       </div>
     </form>
 
+    <div class="share-list-action">
+      <button type="button" class="secondary" id="share-explore-btn">Export and Share List</button>
+    </div>
     <div id="explore-meal-list"></div>
   </main>
 
@@ -435,7 +438,7 @@
       return result;
     };
 
-    const encodeSharedMeals = async mealList => {
+    const encodeSharedMeals = async (mealList, source) => {
       const items = mealList.map(meal => ({
         n: meal.name,
         e: meal.emoji,
@@ -444,7 +447,7 @@
       }));
       if (items.length > 500) throw new Error('A list can contain up to 500 spots.');
 
-      const jsonBytes = new TextEncoder().encode(JSON.stringify({ v: 1, i: items }));
+      const jsonBytes = new TextEncoder().encode(JSON.stringify({ v: 2, s: source, i: items }));
       let prefix = 'j';
       let bytes = jsonBytes;
       if (typeof CompressionStream === 'function') {
@@ -473,11 +476,13 @@
       }
 
       const sharedData = JSON.parse(new TextDecoder().decode(jsonBytes));
-      if (!sharedData || sharedData.v !== 1 || !Array.isArray(sharedData.i) || sharedData.i.length === 0 || sharedData.i.length > 500) {
+      if (!sharedData || ![1, 2].includes(sharedData.v) ||
+          (sharedData.v === 2 && !['spots', 'explore'].includes(sharedData.s)) ||
+          !Array.isArray(sharedData.i) || sharedData.i.length === 0 || sharedData.i.length > 500) {
         throw new Error('Invalid shared list');
       }
 
-      return sharedData.i.map(item => {
+      const meals = sharedData.i.map(item => {
         if (!item || typeof item.n !== 'string' || !item.n.trim() || item.n.length > 200 ||
             typeof item.e !== 'string' || item.e.length > 16 ||
             !Array.isArray(item.c) || item.c.length > CATEGORIES.length ||
@@ -491,9 +496,10 @@
           active: item.a
         };
       });
+      return { source: sharedData.v === 1 ? 'spots' : sharedData.s, meals };
     };
 
-    const DEFAULT_MEALS = [
+    const LEGACY_DEFAULT_MEALS = [
       { id: 1, name: 'Grilled Chicken Salad', emoji: '🥗', categories: ['Healthy'], active: true },
       { id: 2, name: 'Poke Bowl', emoji: '🐟', categories: ['Healthy'], active: true },
       { id: 3, name: 'Crispy Chicken Sandwich', emoji: '🍔', categories: ['Quick'], active: true },
@@ -504,7 +510,22 @@
       { id: 8, name: 'Hot Pot / BBQ', emoji: '🍲', categories: ['Comfort'], active: true }
     ];
 
-    let meals = (JSON.parse(localStorage.getItem(STORAGE_KEY)) || DEFAULT_MEALS).map(meal => ({
+    const DEFAULT_MEALS = [LEGACY_DEFAULT_MEALS[0]];
+    const storedMeals = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    const isUnchangedLegacyDefaultList = savedMeals =>
+      Array.isArray(savedMeals) &&
+      savedMeals.length === LEGACY_DEFAULT_MEALS.length &&
+      LEGACY_DEFAULT_MEALS.every(defaultMeal => {
+        const storedMeal = savedMeals.find(meal => meal.id === defaultMeal.id);
+        return storedMeal &&
+          storedMeal.name === defaultMeal.name &&
+          storedMeal.emoji === defaultMeal.emoji &&
+          storedMeal.active === defaultMeal.active &&
+          JSON.stringify(normalizeMealCategories(storedMeal)) === JSON.stringify(defaultMeal.categories);
+      });
+    const hasUnchangedLegacyDefaults = isUnchangedLegacyDefaultList(storedMeals);
+
+    let meals = (hasUnchangedLegacyDefaults ? DEFAULT_MEALS : storedMeals || DEFAULT_MEALS).map(meal => ({
       ...meal,
       categories: normalizeMealCategories(meal)
     }));
@@ -533,6 +554,7 @@
       localStorage.setItem(EXPLORE_HISTORY_KEY, JSON.stringify(exploreHistory));
       localStorage.setItem(LOCKED_PICKS_KEY, JSON.stringify(lockedPicks));
       document.getElementById('share-list-btn').disabled = meals.length === 0;
+      document.getElementById('share-explore-btn').disabled = exploreMeals.length === 0;
     };
 
     const getMeals = source => source === 'explore' ? exploreMeals : meals;
@@ -915,9 +937,10 @@
       window.history.replaceState(window.history.state, '', url);
     };
 
-    const renderSharedListPreview = sharedMeals => {
+    const renderSharedListPreview = (sharedMeals, source) => {
       const itemsContainer = document.getElementById('shared-list-items');
       const importButton = document.getElementById('import-shared-list-btn');
+      const targetName = source === 'explore' ? 'Explore' : 'My Spots';
       itemsContainer.replaceChildren();
       sharedMeals.forEach((meal, index) => {
         const row = document.createElement('label');
@@ -926,7 +949,7 @@
         checkbox.type = 'checkbox';
         checkbox.className = 'shared-list-item-checkbox';
         checkbox.value = String(index);
-        checkbox.setAttribute('aria-label', `Select ${meal.name} to import${meal.duplicate ? ', duplicated in My Spots' : ''}`);
+        checkbox.setAttribute('aria-label', `Select ${meal.name} to import${meal.duplicate ? `, duplicated in ${targetName}` : ''}`);
         checkbox.addEventListener('change', updateImportSelection);
         const title = document.createElement('div');
         title.className = 'shared-list-item-info';
@@ -968,26 +991,31 @@
       const importButton = document.getElementById('import-shared-list-btn');
       panel.hidden = false;
       importButton.disabled = true;
-      title.textContent = 'Loading shared My Spots...';
+      title.textContent = 'Loading shared list...';
       description.textContent = '';
 
       try {
-        const existingNames = new Set(meals.map(meal => meal.name.trim().replace(/\s+/g, ' ').toLowerCase()));
-        incomingSharedList = (await decodeSharedMeals(payload)).map(meal => ({
-          ...meal,
-          duplicate: existingNames.has(meal.name.trim().replace(/\s+/g, ' ').toLowerCase())
-        }));
-        title.textContent = 'Shared My Spots';
-        const duplicateCount = incomingSharedList.filter(meal => meal.duplicate).length;
+        const sharedList = await decodeSharedMeals(payload);
+        const targetName = sharedList.source === 'explore' ? 'Explore' : 'My Spots';
+        const existingNames = new Set(getMeals(sharedList.source).map(meal => meal.name.trim().replace(/\s+/g, ' ').toLowerCase()));
+        incomingSharedList = {
+          ...sharedList,
+          meals: sharedList.meals.map(meal => ({
+            ...meal,
+            duplicate: existingNames.has(meal.name.trim().replace(/\s+/g, ' ').toLowerCase())
+          }))
+        };
+        title.textContent = `Shared ${targetName}`;
+        const duplicateCount = incomingSharedList.meals.filter(meal => meal.duplicate).length;
         const duplicateNote = duplicateCount
           ? ` ${duplicateCount} potential duplicate${duplicateCount === 1 ? '' : 's'} marked as Duplicated.`
           : '';
-        description.textContent = `Select the spots you want to import.${duplicateNote} Importing adds them without replacing your existing My Spots.`;
-        renderSharedListPreview(incomingSharedList);
+        description.textContent = `Select the items you want to import.${duplicateNote} Importing adds them without replacing your existing ${targetName}.`;
+        renderSharedListPreview(incomingSharedList.meals, sharedList.source);
       } catch (error) {
         console.error('Unable to load shared list:', error);
         incomingSharedList = null;
-        title.textContent = 'Could not open shared My Spots';
+        title.textContent = 'Could not open shared list';
         description.textContent = error.message === 'Compressed links are not supported in this browser.'
           ? error.message
           : 'This link is invalid or too large. Ask your friend to create a new share link.';
@@ -996,13 +1024,13 @@
       }
     };
 
-    document.getElementById('share-list-btn').onclick = async () => {
+    const shareList = async source => {
       try {
-        const payload = await encodeSharedMeals(meals);
+        const shareButton = document.getElementById(source === 'explore' ? 'share-explore-btn' : 'share-list-btn');
+        const payload = await encodeSharedMeals(getMeals(source), source);
         const shareUrl = new URL(window.location.href);
         shareUrl.hash = `share=${payload}`;
         const shareUrlText = shareUrl.toString();
-        const shareButton = document.getElementById('share-list-btn');
 
         if (navigator.clipboard?.writeText) {
           try {
@@ -1023,6 +1051,9 @@
       }
     };
 
+    document.getElementById('share-list-btn').onclick = () => shareList('spots');
+    document.getElementById('share-explore-btn').onclick = () => shareList('explore');
+
     document.getElementById('import-shared-list-btn').onclick = () => {
       if (!incomingSharedList) return;
 
@@ -1030,8 +1061,10 @@
         .map(checkbox => Number(checkbox.value));
       if (selectedIndexes.length === 0) return;
 
-      const selectedMeals = selectedIndexes.map(index => incomingSharedList[index]).filter(Boolean);
-      const usedIds = new Set(meals.map(meal => meal.id));
+      const selectedMeals = selectedIndexes.map(index => incomingSharedList.meals[index]).filter(Boolean);
+      const source = incomingSharedList.source;
+      const targetMeals = getMeals(source);
+      const usedIds = new Set(targetMeals.map(meal => meal.id));
       let nextId = Date.now();
       const importedMeals = selectedMeals.map(meal => {
         while (usedIds.has(nextId)) nextId++;
@@ -1046,13 +1079,13 @@
         nextId++;
         return imported;
       });
-      meals = [...importedMeals, ...meals];
+      setMeals(source, [...importedMeals, ...targetMeals]);
       saveState();
-      renderList('spots');
+      renderList(source);
       incomingSharedList = null;
       document.getElementById('shared-list-panel').hidden = true;
       clearShareHash();
-      document.querySelector('nav button[data-tab="list"]').click();
+      document.querySelector(`nav button[data-tab="${source === 'explore' ? 'explore' : 'list'}"]`).click();
     };
 
     document.getElementById('dismiss-shared-list-btn').onclick = () => {
