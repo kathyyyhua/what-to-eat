@@ -350,7 +350,7 @@
     </form>
 
     <div class="share-list-action">
-      <button type="button" class="secondary" id="share-list-btn">Export / Share List</button>
+      <button type="button" class="secondary" id="share-list-btn">Export and Share List</button>
     </div>
     <div id="meal-list"></div>
   </main>
@@ -1009,7 +1009,7 @@
             await navigator.clipboard.writeText(shareUrlText);
             shareButton.textContent = '✓ Link copied!';
             setTimeout(() => {
-              shareButton.textContent = 'Export / Share List';
+              shareButton.textContent = 'Export and Share List';
             }, 2000);
             return;
           } catch (error) {
