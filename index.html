@@ -204,7 +204,16 @@
     .shared-list-panel h2 { margin: 0 0 6px; font-size: 18px; }
     .shared-list-panel p { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
     .shared-list-items { max-height: 240px; overflow-y: auto; margin-bottom: 12px; }
-    .shared-list-item { padding: 8px 0; border-top: 1px solid var(--border); }
+    .shared-list-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      border-top: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .shared-list-item input { width: auto; margin: 0; flex: 0 0 auto; accent-color: var(--primary); }
+    .shared-list-item-info { min-width: 0; }
     .shared-list-item .item-title { font-size: 14px; }
     .shared-list-actions { display: flex; gap: 8px; }
     .shared-list-actions button { flex: 1; padding: 11px 12px; }
@@ -273,7 +282,7 @@
     <p id="shared-list-description"></p>
     <div id="shared-list-items" class="shared-list-items"></div>
     <div class="shared-list-actions">
-      <button type="button" class="primary" id="import-shared-list-btn">Import to My Spots</button>
+      <button type="button" class="primary" id="import-shared-list-btn" disabled>Import selected (0)</button>
       <button type="button" class="secondary" id="dismiss-shared-list-btn">Not now</button>
     </div>
   </section>
@@ -899,19 +908,37 @@
 
     const renderSharedListPreview = sharedMeals => {
       const itemsContainer = document.getElementById('shared-list-items');
+      const importButton = document.getElementById('import-shared-list-btn');
       itemsContainer.replaceChildren();
-      sharedMeals.forEach(meal => {
-        const row = document.createElement('div');
+      sharedMeals.forEach((meal, index) => {
+        const row = document.createElement('label');
         row.className = 'shared-list-item';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'shared-list-item-checkbox';
+        checkbox.value = String(index);
+        checkbox.setAttribute('aria-label', `Select ${meal.name} to import`);
+        checkbox.addEventListener('change', updateImportSelection);
         const title = document.createElement('div');
-        title.className = 'item-title';
-        title.textContent = `${meal.emoji} ${meal.name}`;
+        title.className = 'shared-list-item-info';
+        const name = document.createElement('div');
+        name.className = 'item-title';
+        name.textContent = `${meal.emoji} ${meal.name}`;
         const details = document.createElement('div');
         details.className = 'item-tag';
         details.textContent = `${meal.categories.join(', ') || 'Uncategorized'}${meal.active ? '' : ' • Muted'}`;
-        row.append(title, details);
+        title.append(name, details);
+        row.append(checkbox, title);
         itemsContainer.append(row);
       });
+      updateImportSelection();
+    };
+
+    const updateImportSelection = () => {
+      const selectedCount = document.querySelectorAll('#shared-list-items .shared-list-item-checkbox:checked').length;
+      const importButton = document.getElementById('import-shared-list-btn');
+      importButton.disabled = selectedCount === 0;
+      importButton.textContent = `Import selected (${selectedCount})`;
     };
 
     const loadSharedListFromUrl = async () => {
@@ -930,9 +957,8 @@
       try {
         incomingSharedList = await decodeSharedMeals(payload);
         title.textContent = 'Shared My Spots';
-        description.textContent = `This list has ${incomingSharedList.length} spot${incomingSharedList.length === 1 ? '' : 's'}. Importing adds them to your list without replacing your existing My Spots.`;
+        description.textContent = `Select the spots you want. Importing adds them to your list without replacing your existing My Spots.`;
         renderSharedListPreview(incomingSharedList);
-        importButton.disabled = false;
       } catch (error) {
         console.error('Unable to load shared list:', error);
         incomingSharedList = null;
@@ -941,6 +967,7 @@
           ? error.message
           : 'This link is invalid or too large. Ask your friend to create a new share link.';
         document.getElementById('shared-list-items').replaceChildren();
+        importButton.textContent = 'Import selected (0)';
       }
     };
 
@@ -974,9 +1001,14 @@
     document.getElementById('import-shared-list-btn').onclick = () => {
       if (!incomingSharedList) return;
 
+      const selectedIndexes = [...document.querySelectorAll('#shared-list-items .shared-list-item-checkbox:checked')]
+        .map(checkbox => Number(checkbox.value));
+      if (selectedIndexes.length === 0) return;
+
+      const selectedMeals = selectedIndexes.map(index => incomingSharedList[index]).filter(Boolean);
       const usedIds = new Set(meals.map(meal => meal.id));
       let nextId = Date.now();
-      const importedMeals = incomingSharedList.map(meal => {
+      const importedMeals = selectedMeals.map(meal => {
         while (usedIds.has(nextId)) nextId++;
         const imported = { ...meal, id: nextId };
         usedIds.add(nextId);
