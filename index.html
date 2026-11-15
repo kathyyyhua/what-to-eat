@@ -998,12 +998,16 @@
         const sharedList = await decodeSharedMeals(payload);
         const targetName = sharedList.source === 'explore' ? 'Explore' : 'My Spots';
         const existingNames = new Set(getMeals(sharedList.source).map(meal => meal.name.trim().replace(/\s+/g, ' ').toLowerCase()));
+        const incomingMeals = sharedList.meals.map(meal => ({
+          ...meal,
+          duplicate: existingNames.has(meal.name.trim().replace(/\s+/g, ' ').toLowerCase())
+        }));
         incomingSharedList = {
           ...sharedList,
-          meals: sharedList.meals.map(meal => ({
-            ...meal,
-            duplicate: existingNames.has(meal.name.trim().replace(/\s+/g, ' ').toLowerCase())
-          }))
+          meals: [
+            ...incomingMeals.filter(meal => !meal.duplicate),
+            ...incomingMeals.filter(meal => meal.duplicate)
+          ]
         };
         title.textContent = `Shared ${targetName}`;
         const duplicateCount = incomingSharedList.meals.filter(meal => meal.duplicate).length;
