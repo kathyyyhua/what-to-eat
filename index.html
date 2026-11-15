@@ -949,31 +949,22 @@
         const payload = await encodeSharedMeals(meals);
         const shareUrl = new URL(window.location.href);
         shareUrl.hash = `share=${payload}`;
-        const shareData = {
-          title: 'My Spots',
-          text: 'Here is my What to Eat list.',
-          url: shareUrl.toString()
-        };
-
-        if (navigator.share) {
-          try {
-            await navigator.share(shareData);
-            return;
-          } catch (error) {
-            if (error.name === 'AbortError') return;
-          }
-        }
+        const shareUrlText = shareUrl.toString();
+        const shareButton = document.getElementById('share-list-btn');
 
         if (navigator.clipboard?.writeText) {
           try {
-            await navigator.clipboard.writeText(shareData.url);
-            alert('Share link copied to clipboard.');
+            await navigator.clipboard.writeText(shareUrlText);
+            shareButton.textContent = '✓ Link copied!';
+            setTimeout(() => {
+              shareButton.textContent = 'Export / Share List';
+            }, 2000);
             return;
           } catch (error) {
             console.error('Unable to copy share link:', error);
           }
         }
-        window.prompt('Copy and share this link:', shareData.url);
+        window.prompt('Copy and share this link:', shareUrlText);
       } catch (error) {
         console.error('Unable to create share link:', error);
         alert(error.message || 'Unable to create share link.');
